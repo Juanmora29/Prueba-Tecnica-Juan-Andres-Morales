@@ -23,6 +23,9 @@ Postulación Machine Learning/
 *.log
 nohup.out
 
+# Interview prep (local only)
+Preguntas-Entrevista-Tecnica.md
+
 # OS
 .DS_Store
 Thumbs.db
