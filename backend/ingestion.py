@@ -23,13 +23,13 @@ def read_markdown_file(path: str) -> str:
 
 def read_pdf_file(path: str) -> str:
     try:
-        import pdfplumber
+        import fitz
     except ImportError:
-        raise ImportError("pdfplumber is required to read PDF files")
+        raise ImportError("pymupdf is required to read PDF files")
     text_parts = []
-    with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
+    with fitz.open(path) as pdf:
+        for page in pdf:
+            text = page.get_text()
             if text:
                 text_parts.append(text)
     return "\n".join(text_parts)

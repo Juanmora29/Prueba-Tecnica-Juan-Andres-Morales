@@ -1,6 +1,8 @@
 import logging
 import time
 
+import requests
+
 from google import genai
 from google.genai import types as genai_types
 from google.genai import errors as genai_errors
@@ -43,6 +45,46 @@ class RAGPipeline:
     def retrieve(self, question: str) -> list[dict]:
         return self.vector_store.search(question)
 
+    def _build_context(self, context_chunks: list[dict]) -> str:
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            context_parts.append(
+                f"[Documento: {chunk['document']}]\n{chunk['content']}"
+            )
+        return "\n\n".join(context_parts)
+
+    def _generate_local(self, question: str, context: str) -> str:
+        prompt = (
+            f"{SYSTEM_PROMPT}\n\n"
+            f"Contexto de la documentación:\n\n{context}\n\n"
+            f"Pregunta del usuario: {question}"
+        )
+        try:
+            resp = requests.post(
+                settings.ollama_url,
+                json={
+                    "model": settings.local_model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0},
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("response", "").strip()
+        except Exception as e:
+            logger.exception(f"Ollama fallback error: {e}")
+            return (
+                "No tengo información disponible en la documentación "
+                "para responder esa consulta."
+            )
+
+    def _fallback_or_local(self, question: str, context: str, message: str) -> str:
+        if settings.local_fallback_enabled:
+            return self._generate_local(question, context)
+        return message
+
     def generate(self, question: str, context_chunks: list[dict]) -> str:
         if not context_chunks:
             return (
@@ -50,13 +92,7 @@ class RAGPipeline:
                 "para responder esa consulta."
             )
 
-        context_parts = []
-        for i, chunk in enumerate(context_chunks, 1):
-            context_parts.append(
-                f"[Documento: {chunk['document']}]\n{chunk['content']}"
-            )
-        context = "\n\n".join(context_parts)
-
+        context = self._build_context(context_chunks)
         client = self._get_client()
 
         max_retries = 3
@@ -74,6 +110,8 @@ class RAGPipeline:
                         max_output_tokens=500,
                     ),
                 )
+                if response.text:
+                    return response.text.strip()
                 break
             except genai_errors.ClientError as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -85,14 +123,16 @@ class RAGPipeline:
                         )
                         time.sleep(retry_after)
                         continue
-                    return (
+                    return self._fallback_or_local(
+                        question, context,
                         "Se agotó la cuota gratuita de Gemini. "
-                        "Esperá unos minutos e intentá de nuevo."
+                        "Esperá unos minutos e intentá de nuevo.",
                     )
                 logger.exception(f"Gemini API client error: {e}")
-                return (
+                return self._fallback_or_local(
+                    question, context,
                     "Ocurrió un error al comunicarse con Gemini. "
-                    "Verificá la clave API en el archivo .env."
+                    "Verificá la clave API en el archivo .env.",
                 )
             except genai_errors.ServerError as e:
                 if "503" in str(e) or "UNAVAILABLE" in str(e):
@@ -104,29 +144,30 @@ class RAGPipeline:
                         )
                         time.sleep(retry_after)
                         continue
-                    return (
+                    return self._fallback_or_local(
+                        question, context,
                         "El servicio Gemini está temporalmente congestionado. "
-                        "Intentá de nuevo en unos minutos."
+                        "Intentá de nuevo en unos minutos.",
                     )
                 logger.exception(f"Gemini API server error: {e}")
-                return (
+                return self._fallback_or_local(
+                    question, context,
                     "Ocurrió un error en el servidor de Gemini. "
-                    "Intentá de nuevo más tarde."
+                    "Intentá de nuevo más tarde.",
                 )
             except Exception as e:
                 logger.exception(f"Gemini API error: {e}")
-                return (
+                return self._fallback_or_local(
+                    question, context,
                     "Ocurrió un error al comunicarse con Gemini. "
-                    "Verificá tu conexión a internet."
+                    "Verificá tu conexión a internet.",
                 )
 
-        if not response.text:
-            return (
-                "Gemini no generó una respuesta. "
-                "Inténtalo de nuevo más tarde."
-            )
-
-        return response.text.strip()
+        return self._fallback_or_local(
+            question, context,
+            "Gemini no generó una respuesta. "
+            "Inténtalo de nuevo más tarde.",
+        )
 
     def answer(self, question: str) -> dict:
         if not question or not question.strip():

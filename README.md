@@ -1,13 +1,14 @@
 # MineCatalog Support Assistant
 
-Asistente automatizado de soporte técnico para el software MineCatalog. Responde preguntas utilizando la documentación técnica mediante un pipeline RAG (Retrieval-Augmented Generation).
+Asistente automatizado de soporte técnico para el software MineCatalog. Responde preguntas utilizando la documentación técnica mediante un pipeline RAG (Retrieval-Augmented Generation) con doble capa de inferencia: Gemini API + Ollama como fallback local.
 
 ## Arquitectura
 
 ```
 Usuario → n8n Webhook (:5678) → HTTP POST → FastAPI /ask (:8000) → 
-  chunk search (ChromaDB + sentence-transformers) → 
-  prompt → Gemini (gemini-2.5-flash) → respuesta → n8n → usuario
+  chunk search (ChromaDB + multilingual-e5-small embeddings) → 
+  prompt → Gemini (gemini-2.5-flash) ──┬─ OK → respuesta → n8n → usuario
+                                        └─ 429/503 → Ollama (llama3.2:3b) → respuesta
 ```
 
 ## Requisitos
@@ -16,6 +17,7 @@ Usuario → n8n Webhook (:5678) → HTTP POST → FastAPI /ask (:8000) →
 - [n8n](https://n8n.io/) (para el workflow, opcional con Docker)
 - [Docker](https://docker.com/) (opcional, para levantar todo con un comando)
 - Gemini API Key (gratuita en [Google AI Studio](https://aistudio.google.com/))
+- [Ollama](https://ollama.com/) (opcional, para fallback local sin cuota)
 
 ## Instalación
 
@@ -26,9 +28,12 @@ Usuario → n8n Webhook (:5678) → HTTP POST → FastAPI /ask (:8000) →
 cp .env.example .env
 # Editar .env y agregar GEMINI_API_KEY
 
-# 2. Levantar todo
-docker-compose up
+# 2. Levantar todo (primera vez: ~5min por descarga de modelos)
+docker-compose up --build
 ```
+
+> El primer build descarga el modelo de embeddings (all-MiniLM-L6-v2).
+> Builds posteriores usan caché y son casi instantáneos.
 
 Esto levanta el backend en `http://localhost:8000` y n8n en `http://localhost:5678`.
 Para n8n en Docker, importar el workflow `n8n/support_assistant_docker.json` (usa la URL interna del contenedor).
@@ -56,6 +61,28 @@ python -m backend.main
 ```
 
 El servidor corre en `http://localhost:8000`.
+
+### Fallback local con Ollama (opcional)
+
+Cuando Gemini alcanza el límite de cuota gratuita (1500 req/día), el sistema
+cae automáticamente a un modelo local vía Ollama.
+
+```bash
+# 1. Instalar Ollama (https://ollama.com/)
+# 2. Descargar el modelo
+ollama pull llama3.2:3b
+
+# 3. Activar en .env
+LOCAL_FALLBACK_ENABLED=true
+LOCAL_MODEL_NAME=llama3.2:3b
+OLLAMA_URL=http://localhost:11434/api/generate
+
+# 4. Reiniciar el backend
+python -m backend.main
+```
+
+> En Docker, la URL cambia a `http://host.docker.internal:11434/api/generate`
+> (valor configurado automáticamente en `docker-compose.yml`).
 
 ## API Endpoints
 
@@ -156,9 +183,9 @@ Incluye tests de:
 │   ├── config.py          # Configuración desde .env
 │   ├── models.py          # Schemas Pydantic
 │   ├── ingestion.py       # Lectura, limpieza y chunking
-│   ├── embeddings.py      # sentence-transformers wrapper
+│   ├── embeddings.py      # sentence-transformers wrapper (e5 con prefijos query/passage)
 │   ├── vector_store.py    # ChromaDB store & search
-│   └── rag_pipeline.py    # Pipeline RAG (retrieve + Gemini)
+│   └── rag_pipeline.py    # Pipeline RAG (retrieve + Gemini + Ollama fallback)
 ├── frontend/
 │   └── index.html         # Chat UI (abrir en navegador)
 ├── scripts/
@@ -185,8 +212,8 @@ Incluye tests de:
 - **Pregunta vacía**: devuelve 400 con mensaje claro.
 - **Sin información relevante**: responde "No tengo información disponible en la documentación para responder esa consulta."
 - **Error de autenticación Gemini**: responde indicando que la API key es inválida.
-- **Cuota agotada (429)**: responde indicando que se superó el límite de uso gratuito (el backend reintenta hasta 3 veces automáticamente).
-- **Servicio no disponible (503)**: responde indicando congestión temporal (reintento automático incluido).
+- **Cuota agotada (429)**: si `LOCAL_FALLBACK_ENABLED=true` y Ollama está instalado, responde con el modelo local. Sino, indica que se superó el límite gratuito.
+- **Servicio no disponible (503)**: mismo comportamiento: si el fallback local está activo, responde con Ollama.
 - **Error de conexión**: responde indicando problema de red o clave API.
 - **ECONNREFUSED ::1:8000**: n8n usó IPv6; cambiar `localhost` por `127.0.0.1` en la URL del nodo HTTP.
 - **Docker — conexión rechazada**: Si n8n en Docker no llega al backend, verificar que ambos estén en la misma red (`depends_on` en docker-compose) y usar `http://backend:8000/ask`.
