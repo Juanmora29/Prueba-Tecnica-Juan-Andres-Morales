@@ -59,12 +59,13 @@ def ask(request: AskRequest):
         result = pipeline.answer(request.question)
         return AskResponse(**result)
     except ValueError as e:
+        logger.error(f"Configuration error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.exception("Error processing question")
         raise HTTPException(
             status_code=500,
-            detail="Error interno al procesar la pregunta",
+            detail=str(e) if str(e) else "Error interno al procesar la pregunta",
         )
 
 

@@ -5,8 +5,8 @@ load_dotenv()
 
 
 class Settings:
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     embedding_model: str = os.getenv(
         "EMBEDDING_MODEL", "all-MiniLM-L6-v2"
     )

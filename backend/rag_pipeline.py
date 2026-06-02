@@ -1,7 +1,9 @@
 import logging
+import time
 
-import openai
-from openai import OpenAI
+from google import genai
+from google.genai import types as genai_types
+from google.genai import errors as genai_errors
 
 from backend.config import settings
 from backend.vector_store import VectorStore
@@ -27,16 +29,16 @@ SYSTEM_PROMPT = (
 class RAGPipeline:
     def __init__(self):
         self.vector_store = VectorStore()
-        self._openai = None
+        self._client = None
 
-    def _get_client(self) -> OpenAI:
-        if self._openai is None:
-            if not settings.openai_api_key:
+    def _get_client(self) -> genai.Client:
+        if self._client is None:
+            if not settings.gemini_api_key:
                 raise ValueError(
-                    "OPENAI_API_KEY is not set in .env file"
+                    "GEMINI_API_KEY is not set in .env file"
                 )
-            self._openai = OpenAI(api_key=settings.openai_api_key)
-        return self._openai
+            self._client = genai.Client(api_key=settings.gemini_api_key)
+        return self._client
 
     def retrieve(self, question: str) -> list[dict]:
         return self.vector_store.search(question)
@@ -56,55 +58,75 @@ class RAGPipeline:
         context = "\n\n".join(context_parts)
 
         client = self._get_client()
-        try:
-            response = client.chat.completions.create(
-                model=settings.openai_model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Contexto de la documentación:\n\n{context}\n\n"
-                            f"Pregunta del usuario: {question}"
-                        ),
-                    },
-                ],
-                temperature=0,
-                max_tokens=500,
-                timeout=30,
-            )
-        except openai.AuthenticationError:
-            logger.error("OpenAI authentication failed — invalid API key")
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=(
+                        f"Contexto de la documentación:\n\n{context}\n\n"
+                        f"Pregunta del usuario: {question}"
+                    ),
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        temperature=0,
+                        max_output_tokens=500,
+                    ),
+                )
+                break
+            except genai_errors.ClientError as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    if attempt < max_retries - 1:
+                        retry_after = 5 * (attempt + 1)
+                        logger.warning(
+                            f"Gemini rate limited (attempt {attempt+1}), "
+                            f"retrying in {retry_after}s..."
+                        )
+                        time.sleep(retry_after)
+                        continue
+                    return (
+                        "Se agotó la cuota gratuita de Gemini. "
+                        "Esperá unos minutos e intentá de nuevo."
+                    )
+                logger.exception(f"Gemini API client error: {e}")
+                return (
+                    "Ocurrió un error al comunicarse con Gemini. "
+                    "Verificá la clave API en el archivo .env."
+                )
+            except genai_errors.ServerError as e:
+                if "503" in str(e) or "UNAVAILABLE" in str(e):
+                    if attempt < max_retries - 1:
+                        retry_after = 5 * (attempt + 1)
+                        logger.warning(
+                            f"Gemini unavailable (attempt {attempt+1}), "
+                            f"retrying in {retry_after}s..."
+                        )
+                        time.sleep(retry_after)
+                        continue
+                    return (
+                        "El servicio Gemini está temporalmente congestionado. "
+                        "Intentá de nuevo en unos minutos."
+                    )
+                logger.exception(f"Gemini API server error: {e}")
+                return (
+                    "Ocurrió un error en el servidor de Gemini. "
+                    "Intentá de nuevo más tarde."
+                )
+            except Exception as e:
+                logger.exception(f"Gemini API error: {e}")
+                return (
+                    "Ocurrió un error al comunicarse con Gemini. "
+                    "Verificá tu conexión a internet."
+                )
+
+        if not response.text:
             return (
-                "Error de autenticación con OpenAI. "
-                "Verifica que la clave API en el archivo .env sea correcta."
-            )
-        except openai.RateLimitError:
-            logger.error("OpenAI rate limit exceeded")
-            return (
-                "Se ha excedido el límite de solicitudes a OpenAI. "
-                "Espera unos minutos e inténtalo de nuevo."
-            )
-        except openai.APITimeoutError:
-            logger.error("OpenAI request timed out")
-            return (
-                "La solicitud a OpenAI tardó demasiado en responder. "
-                "Verifica tu conexión a internet e inténtalo de nuevo."
-            )
-        except openai.APIConnectionError:
-            logger.error("OpenAI connection error")
-            return (
-                "No se pudo conectar con OpenAI. "
-                "Verifica tu conexión a internet."
-            )
-        except openai.APIError as e:
-            logger.exception(f"OpenAI API error: {e}")
-            return (
-                "Ocurrió un error inesperado al comunicarse con OpenAI. "
+                "Gemini no generó una respuesta. "
                 "Inténtalo de nuevo más tarde."
             )
 
-        return response.choices[0].message.content.strip()
+        return response.text.strip()
 
     def answer(self, question: str) -> dict:
         if not question or not question.strip():
