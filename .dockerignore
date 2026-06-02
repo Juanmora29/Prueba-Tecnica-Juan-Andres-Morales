@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+chroma_db/
+.git/
+README.md
+n8n/testn8n.txt
+docs/guia-evaluacion-tecnica.md
+Postulación Machine Learning/

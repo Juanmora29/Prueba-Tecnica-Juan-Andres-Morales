@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MineCatalog - Asistente de Soporte</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #f0f2f5;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .chat-container {
+    width: 100%;
+    max-width: 700px;
+    height: 90vh;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .header {
+    background: #1a73e8;
+    color: #fff;
+    padding: 18px 24px;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header span { font-size: 22px; }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .message {
+    max-width: 80%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    line-height: 1.5;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .message.user {
+    background: #1a73e8;
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+  }
+  .message.bot {
+    background: #f0f2f5;
+    color: #1a1a1a;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+  }
+  .message.error {
+    background: #fde8e8;
+    color: #c62828;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+  }
+  .message .source {
+    font-size: 11px;
+    color: #666;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #e0e0e0;
+  }
+  .message.bot .source { border-top-color: #d0d0d0; }
+  .typing {
+    align-self: flex-start;
+    background: #f0f2f5;
+    padding: 12px 20px;
+    border-radius: 12px;
+    border-bottom-left-radius: 4px;
+    display: flex;
+    gap: 4px;
+  }
+  .typing span {
+    width: 8px; height: 8px;
+    background: #888;
+    border-radius: 50%;
+    animation: bounce 1.4s infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
+  .input-area {
+    padding: 16px 20px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    gap: 10px;
+    background: #fafafa;
+  }
+  .input-area input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid #d0d0d0;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border 0.2s;
+  }
+  .input-area input:focus { border-color: #1a73e8; }
+  .input-area button {
+    padding: 12px 24px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .input-area button:hover { background: #1557b0; }
+  .input-area button:disabled { background: #999; cursor: not-allowed; }
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    gap: 8px;
+  }
+  .empty-state .icon { font-size: 48px; }
+  .empty-state .text { font-size: 16px; }
+  .empty-state .hint { font-size: 13px; color: #aaa; }
+  .config-note {
+    font-size: 11px;
+    color: #aaa;
+    text-align: center;
+    padding: 6px;
+    border-top: 1px solid #f0f0f0;
+  }
+</style>
+</head>
+<body>
+<div class="chat-container">
+  <div class="header">
+    <span>&#x1F4AC;</span> MineCatalog - Soporte T&eacute;cnico
+  </div>
+
+  <div class="messages" id="messages">
+    <div class="empty-state" id="emptyState">
+      <div class="icon">&#x1F50D;</div>
+      <div class="text">Hac&eacute; una pregunta sobre MineCatalog</div>
+      <div class="hint">Ej: &quot;&iquest;C&oacute;mo soluciono un error de conexi&oacute;n?&quot;</div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <input type="text" id="questionInput" placeholder="Escrib&iacute; tu pregunta..." autofocus>
+    <button id="sendBtn" onclick="sendQuestion()">Enviar</button>
+  </div>
+  <div class="config-note">Respuestas basadas en la documentaci&oacute;n t&eacute;cnica de MineCatalog</div>
+</div>
+
+<script>
+const API_URL = 'http://localhost:8000/ask';
+
+function addMessage(text, role, sources) {
+  const empty = document.getElementById('emptyState');
+  if (empty) empty.remove();
+
+  const el = document.createElement('div');
+  el.className = 'message ' + role;
+  el.textContent = text;
+
+  if (sources && sources.length > 0) {
+    const src = document.createElement('div');
+    src.className = 'source';
+    const names = [...new Set(sources.map(s => s.document))];
+    src.textContent = 'Fuente: ' + names.join(', ');
+    el.appendChild(src);
+  }
+
+  document.getElementById('messages').appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth' });
+}
+
+function showTyping() {
+  const el = document.createElement('div');
+  el.className = 'typing';
+  el.id = 'typingIndicator';
+  el.innerHTML = '<span></span><span></span><span></span>';
+  document.getElementById('messages').appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideTyping() {
+  const el = document.getElementById('typingIndicator');
+  if (el) el.remove();
+}
+
+async function sendQuestion() {
+  const input = document.getElementById('questionInput');
+  const btn = document.getElementById('sendBtn');
+  const question = input.value.trim();
+  if (!question) return;
+
+  input.value = '';
+  btn.disabled = true;
+
+  addMessage(question, 'user');
+  showTyping();
+
+  try {
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question })
+    });
+    const data = await resp.json();
+    hideTyping();
+
+    if (!resp.ok) {
+      addMessage('Error: ' + (data.detail || 'Error del servidor'), 'error');
+      return;
+    }
+
+    addMessage(data.answer, 'bot', data.sources);
+  } catch (err) {
+    hideTyping();
+    addMessage('Error de conexi&oacute;n. Verific&aacute; que el servidor est&eacute; corriendo en :8000.', 'error');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('questionInput').focus();
+  }
+}
+
+document.getElementById('questionInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') sendQuestion();
+});
+</script>
+</body>
+</html>
