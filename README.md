@@ -5,8 +5,8 @@ Asistente automatizado de soporte técnico para el software MineCatalog. Respond
 ## Arquitectura
 
 ```
-Usuario → n8n Webhook (:5678) → HTTP POST → FastAPI /ask (:8000) → 
-  chunk search (ChromaDB + multilingual-e5-small embeddings) → 
+Usuario → n8n Webhook (:5678) → HTTP POST → FastAPI /ask (:8000) →
+  chunk search (ChromaDB + multilingual-e5-small embeddings) →
   prompt → Gemini (gemini-2.5-flash) ──┬─ OK → respuesta → n8n → usuario
                                         └─ 429/503 → Ollama (llama3.2:3b) → respuesta
 ```
@@ -32,7 +32,7 @@ cp .env.example .env
 docker-compose up --build
 ```
 
-> El primer build descarga el modelo de embeddings (all-MiniLM-L6-v2).
+> El primer build descarga el modelo de embeddings (multilingual-e5-small).
 > Builds posteriores usan caché y son casi instantáneos.
 
 Esto levanta el backend en `http://localhost:8000` y n8n en `http://localhost:5678`.
@@ -87,6 +87,7 @@ python -m backend.main
 ## API Endpoints
 
 ### `POST /ask`
+
 Envía una pregunta al asistente.
 
 ```json
@@ -96,6 +97,7 @@ Envía una pregunta al asistente.
 ```
 
 Respuesta:
+
 ```json
 {
   "answer": "Respuesta basada en la documentación...",
@@ -110,27 +112,30 @@ Respuesta:
 ```
 
 ### `POST /ingest`
+
 Refresca el índice con los documentos actuales de `docs/`.
 
 ### `GET /health`
+
 Health check del servicio.
 
 ## n8n Workflow
 
 El workflow se compone de 2 nodos:
+
 - **Webhook**: recibe POST en `/webhook/chat-support`
 - **Ask Backend**: reenvía la pregunta al backend Python
 
 ### Configuración de nodos
 
-| Nodo | Campo | Valor |
-|------|-------|-------|
-| Webhook | Path | `chat-support` |
-| Ask Backend | Method | POST |
-| Ask Backend | URL | `http://127.0.0.1:8000/ask` |
-| Ask Backend | Body Content Type | JSON |
-| Ask Backend | Specified Body | `{"question": "{{ $json.question }}"}` |
-| Ask Backend | Timeout | 30000 |
+| Nodo        | Campo             | Valor                                  |
+| ----------- | ----------------- | -------------------------------------- |
+| Webhook     | Path              | `chat-support`                         |
+| Ask Backend | Method            | POST                                   |
+| Ask Backend | URL               | `http://127.0.0.1:8000/ask`            |
+| Ask Backend | Body Content Type | JSON                                   |
+| Ask Backend | Specified Body    | `{"question": "{{ $json.question }}"}` |
+| Ask Backend | Timeout           | 30000                                  |
 
 > **Importante:** usar `127.0.0.1` en vez de `localhost` porque n8n resuelve localhost como IPv6.
 >
@@ -171,6 +176,7 @@ python -m pytest tests/ -v
 ```
 
 Incluye tests de:
+
 - **Ingestión**: limpieza de texto, chunking con overlap
 - **API**: health check, preguntas vacías, endpoints `/ask` e `/ingest`
 - **Pipeline**: preguntas sin contexto, fallback, casos borde
