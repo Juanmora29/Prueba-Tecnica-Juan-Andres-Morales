@@ -125,7 +125,16 @@ El workflow se compone de 2 nodos:
 
 ## Frontend Web
 
-Abrir `frontend/index.html` en el navegador (con el backend corriendo). Interfaz de chat que consume `POST /ask`.
+El frontend es un archivo HTML local (no requiere servidor web). Con el backend corriendo:
+
+1. Abrí el Explorador de archivos en la carpeta del proyecto
+2. Hacé doble click en `frontend/index.html`
+   (O abrí el navegador y presioná Ctrl+O → seleccioná el archivo)
+
+Se abre una interfaz de chat que consume `POST /ask`. Escribí una pregunta y presioná Enter o click en "Enviar".
+
+> El backend debe estar corriendo en `http://localhost:8000` (Docker o manual).
+> El CORS ya está habilitado, funciona directo desde el archivo local.
 
 ## Tests
 
