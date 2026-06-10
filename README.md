@@ -81,8 +81,14 @@ OLLAMA_URL=http://localhost:11434/api/generate
 python -m backend.main
 ```
 
-> En Docker, la URL cambia a `http://host.docker.internal:11434/api/generate`
-> (valor configurado automáticamente en `docker-compose.yml`).
+> **En Linux con Docker:** el `docker-compose.yml` usa `network_mode: host` y
+> `http://localhost:11434/api/generate`. Además, Ollama debe escuchar en
+> `0.0.0.0` (configurar con `OLLAMA_HOST=0.0.0.0` en systemd o al iniciarlo).
+>
+> **En Mac/Windows con Docker Desktop:** funciona con `host.docker.internal`
+> (el nombre DNS que Docker resuelve automáticamente a la IP del host).
+> Si se quiere usar `bridge` en vez de `host`, cambiar `OLLAMA_URL` a
+> `http://host.docker.internal:11434/api/generate`.
 
 ## API Endpoints
 
