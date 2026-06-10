@@ -107,7 +107,7 @@ class RAGPipeline:
                     config=genai_types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,
                         temperature=0,
-                        max_output_tokens=500,
+                        max_output_tokens=3000,
                     ),
                 )
                 if response.text:
